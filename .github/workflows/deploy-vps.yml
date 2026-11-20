@@ -39,7 +39,7 @@ jobs:
           cat > /tmp/freebie.env <<EOF
           PORT=8788
           HOST=0.0.0.0
-          BIND_ADDRESS=0.0.0.0
+          BIND_ADDRESS=127.0.0.1
           DATABASE_PATH=./data/radar.db
           TZ=Asia/Shanghai
           ADMIN_TOKEN=${VPS_ADMIN_TOKEN}
