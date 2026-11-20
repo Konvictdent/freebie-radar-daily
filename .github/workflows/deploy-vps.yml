@@ -16,14 +16,18 @@ jobs:
     timeout-minutes: 45
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_PASS: ${{ secrets.VPS_PASS }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_ADMIN_TOKEN: ${{ secrets.VPS_ADMIN_TOKEN }}
       PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
 
     steps:
-      - name: Install sshpass
-        run: sudo apt-get update -y && sudo apt-get install -y sshpass
+      - name: Prepare SSH key
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > /tmp/vps_key
+          chmod 600 /tmp/vps_key
 
       - name: Write env file
         run: |
@@ -60,9 +64,9 @@ jobs:
       - name: Copy env and deploy
         run: |
           set -euo pipefail
-          SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
-          sshpass -p "$VPS_PASS" scp $SSHOPTS /tmp/freebie.env root@"$VPS_HOST":/tmp/freebie.env
-          sshpass -p "$VPS_PASS" ssh $SSHOPTS root@"$VPS_HOST" 'bash -s' <<'REMOTE'
+          SSHOPTS="-i /tmp/vps_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
+          scp $SSHOPTS /tmp/freebie.env root@"$VPS_HOST":/tmp/freebie.env
+          ssh $SSHOPTS root@"$VPS_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
           if command -v apt-get >/dev/null; then
