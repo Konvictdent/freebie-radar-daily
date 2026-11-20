@@ -73,10 +73,16 @@ jobs:
           BASIC_HASH=$(htpasswd -nbB admin "$VPS_WEB_PASSWORD" | cut -d: -f2)
           cat > /tmp/Caddyfile <<'EOF'
           107.173.19.29.sslip.io {
-            basic_auth {
-              admin __BASIC_HASH__
+            @api path /api/*
+            handle @api {
+              reverse_proxy radar:8788
             }
-            reverse_proxy radar:8788
+            handle {
+              basic_auth {
+                admin __BASIC_HASH__
+              }
+              reverse_proxy radar:8788
+            }
             encode gzip
             header {
               Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -157,6 +163,9 @@ jobs:
           unauth=$(curl -s -o /dev/null -w '%{http_code}' "https://107.173.19.29.sslip.io/" || true)
           echo "unauth=$unauth"
           test "$unauth" = "401"
+          admin_code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VPS_ADMIN_TOKEN" "https://107.173.19.29.sslip.io/api/push" || true)
+          echo "admin_api=$admin_code"
+          test "$admin_code" = "200"
           echo HTTPS_OK
 
       - name: Show Caddy logs on failure
