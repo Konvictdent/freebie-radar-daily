@@ -1,9 +1,6 @@
 name: Freebie Radar Daily
 
 on:
-  schedule:
-    # GitHub cron is UTC. 00:30 UTC = 08:30 Asia/Shanghai.
-    - cron: "30 0 * * *"
   workflow_dispatch:
 
 permissions:
