@@ -1,0 +1,111 @@
+name: Harden VPS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harden-vps
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PASS: ${{ secrets.VPS_PASS }}
+      VPS_ROOT_PASSWORD: ${{ secrets.VPS_ROOT_PASSWORD }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_SSH_PUB: ${{ secrets.VPS_SSH_PUB }}
+
+    steps:
+      - name: Install sshpass
+        run: sudo apt-get update -y && sudo apt-get install -y sshpass
+
+      - name: Prepare key and password files
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > /tmp/vps_key
+          chmod 600 /tmp/vps_key
+          printf '%s\n' "$VPS_SSH_PUB" > /tmp/vps_key.pub
+          printf 'root:%s\n' "$VPS_ROOT_PASSWORD" > /tmp/root-pass.txt
+
+      - name: Install key, rotate root password, firewall and fail2ban
+        run: |
+          set -euo pipefail
+          SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
+          sshpass -p "$VPS_PASS" scp $SSHOPTS /tmp/vps_key.pub /tmp/root-pass.txt root@"$VPS_HOST":/tmp/
+          sshpass -p "$VPS_PASS" ssh $SSHOPTS root@"$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          mkdir -p /root/.ssh
+          chmod 700 /root/.ssh
+          touch /root/.ssh/authorized_keys
+          chmod 600 /root/.ssh/authorized_keys
+          grep -qxF "$(cat /tmp/vps_key.pub)" /root/.ssh/authorized_keys || cat /tmp/vps_key.pub >> /root/.ssh/authorized_keys
+          chpasswd < /tmp/root-pass.txt
+          rm -f /tmp/root-pass.txt /tmp/vps_key.pub
+          apt-get update -y
+          apt-get install -y fail2ban ufw unattended-upgrades
+          cat >/etc/fail2ban/jail.local <<'JAIL'
+          [sshd]
+          enabled = true
+          port = 22
+          maxretry = 5
+          findtime = 10m
+          bantime = 1h
+          JAIL
+          systemctl enable --now fail2ban
+          ufw allow 22/tcp
+          ufw allow 80/tcp
+          ufw allow 443/tcp
+          ufw allow 8788/tcp
+          ufw default deny incoming
+          ufw default allow outgoing
+          ufw --force enable
+          cat >/etc/apt/apt.conf.d/20auto-upgrades <<'APT'
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT
+          echo PHASE1_OK
+          REMOTE
+
+      - name: Test key login
+        run: |
+          set -euo pipefail
+          ssh -i /tmp/vps_key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$VPS_HOST" 'echo KEY_OK'
+
+      - name: Disable password authentication
+        run: |
+          set -euo pipefail
+          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          mkdir -p /etc/ssh/sshd_config.d
+          cat >/etc/ssh/sshd_config.d/00-hardening.conf <<'SSHD'
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin prohibit-password
+          PubkeyAuthentication yes
+          SSHD
+          if [ -f /etc/ssh/sshd_config.d/50-cloud-init.conf ]; then
+            sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config.d/50-cloud-init.conf || true
+          fi
+          sshd -t
+          systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || systemctl restart sshd
+          echo SSHD_OK
+          REMOTE
+
+      - name: Verify key login and show security status
+        run: |
+          set -euo pipefail
+          ssh -i /tmp/vps_key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          sshd -T | grep -E '^(passwordauthentication|permitrootlogin|pubkeyauthentication)'
+          ufw status verbose
+          fail2ban-client status sshd || true
+          echo HARDEN_OK
+          REMOTE
