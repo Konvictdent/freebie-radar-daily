@@ -18,6 +18,7 @@ jobs:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_ADMIN_TOKEN: ${{ secrets.VPS_ADMIN_TOKEN }}
+      VPS_WEB_PASSWORD: ${{ secrets.VPS_WEB_PASSWORD }}
       PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
 
@@ -28,6 +29,9 @@ jobs:
           umask 077
           printf '%s\n' "$VPS_SSH_KEY" > /tmp/vps_key
           chmod 600 /tmp/vps_key
+
+      - name: Install htpasswd
+        run: sudo apt-get update -y && sudo apt-get install -y apache2-utils
 
       - name: Write env file
         run: |
@@ -40,7 +44,7 @@ jobs:
           TZ=Asia/Shanghai
           ADMIN_TOKEN=${VPS_ADMIN_TOKEN}
           RATE_LIMIT_ENABLED=true
-          TRUST_PROXY=false
+          TRUST_PROXY=true
           WEBHOOK_ALLOW_PRIVATE=false
           ENABLE_SCHEDULER=true
           COLLECT_CRON=0 */2 * * *
@@ -48,6 +52,7 @@ jobs:
           DAILY_TOP_N=12
           SITE_MODE=selfhost
           GUEST_HIDDEN_CATEGORIES=pan,course
+          PUBLIC_BASE_URL=https://107.173.19.29.sslip.io
           PUSH_CHANNEL=pushplus
           PUSHPLUS_TOKEN=${PUSHPLUS_TOKEN}
           AI_BASE_URL=https://opencode.ai/zen/go/v1
@@ -61,11 +66,35 @@ jobs:
           EOF
           chmod 600 /tmp/freebie.env
 
+      - name: Write Caddyfile
+        run: |
+          set -euo pipefail
+          umask 077
+          BASIC_HASH=$(htpasswd -nbB admin "$VPS_WEB_PASSWORD" | cut -d: -f2)
+          cat > /tmp/Caddyfile <<'EOF'
+          107.173.19.29.sslip.io {
+            basic_auth {
+              admin __BASIC_HASH__
+            }
+            reverse_proxy radar:8788
+            encode gzip
+            header {
+              Strict-Transport-Security "max-age=31536000; includeSubDomains"
+              X-Content-Type-Options "nosniff"
+              X-Frame-Options "DENY"
+              Referrer-Policy "no-referrer"
+              -Server
+            }
+          }
+          EOF
+          sed -i "s|__BASIC_HASH__|$BASIC_HASH|" /tmp/Caddyfile
+          chmod 600 /tmp/Caddyfile
+
       - name: Copy env and deploy
         run: |
           set -euo pipefail
           SSHOPTS="-i /tmp/vps_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
-          scp $SSHOPTS /tmp/freebie.env root@"$VPS_HOST":/tmp/freebie.env
+          scp $SSHOPTS /tmp/freebie.env /tmp/Caddyfile root@"$VPS_HOST":/tmp/
           ssh $SSHOPTS root@"$VPS_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
@@ -93,7 +122,8 @@ jobs:
           fi
           mkdir -p data
           install -m 600 /tmp/freebie.env .env
-          rm -f /tmp/freebie.env
+          install -m 600 /tmp/Caddyfile Caddyfile
+          rm -f /tmp/freebie.env /tmp/Caddyfile
           if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then ufw allow 8788/tcp || true; fi
           if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
             firewall-cmd --permanent --add-port=8788/tcp || true
@@ -113,15 +143,23 @@ jobs:
           echo HEALTH_OK
           REMOTE
 
-      - name: Verify public health
+      - name: Verify HTTPS and basic auth
         run: |
-          for i in $(seq 1 10); do
-            if curl -fsS --max-time 15 "http://$VPS_HOST:8788/health"; then
-              echo
-              echo PUBLIC_HEALTH_OK
-              exit 0
-            fi
+          set -euo pipefail
+          code=000
+          for i in $(seq 1 36); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$VPS_WEB_PASSWORD" "https://107.173.19.29.sslip.io/health" || true)
+            if [ "$code" = "200" ]; then break; fi
             sleep 5
           done
-          echo "public health failed; open TCP 8788 in the provider firewall"
-          exit 1
+          echo "authed=$code"
+          test "$code" = "200"
+          unauth=$(curl -s -o /dev/null -w '%{http_code}' "https://107.173.19.29.sslip.io/" || true)
+          echo "unauth=$unauth"
+          test "$unauth" = "401"
+          echo HTTPS_OK
+
+      - name: Show Caddy logs on failure
+        if: failure()
+        run: |
+          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$VPS_HOST" 'cd /opt/freebie-radar && docker compose logs --tail=100 caddy' || true

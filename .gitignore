@@ -6,6 +6,7 @@ data/
 logs/
 .env
 .env.local
+Caddyfile
 *.log
 .DS_Store
 .impeccable/

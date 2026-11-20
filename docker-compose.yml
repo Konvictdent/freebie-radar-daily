@@ -32,6 +32,25 @@ services:
       retries: 3
       start_period: 10s
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - radar
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # 可选：采集 linux.do 等带 Cloudflare 护盾的站点时可一起启动：
   # docker compose --profile cf up -d --build
   # 并在 .env 设置 FLARESOLVERR_URL=http://flaresolverr:8191
@@ -48,3 +67,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
