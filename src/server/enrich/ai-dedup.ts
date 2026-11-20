@@ -1,5 +1,6 @@
 import { all, get, run, tx } from "../db.ts";
 import { aiReady, getAiSettings, type AiSettings } from "./ai-settings.ts";
+import { aiExtraHeaders } from "./ai-headers.ts";
 
 export type DedupCandidate = {
   id: number;
@@ -133,6 +134,7 @@ export async function findSemanticDuplicatesWithAi(
       method: "POST",
       headers: {
         "content-type": "application/json",
+        ...aiExtraHeaders(),
         ...(s.apiKey ? { authorization: "Bearer " + s.apiKey } : {}),
       },
       body: JSON.stringify({

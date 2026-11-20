@@ -6,6 +6,7 @@ import { FREEBIE_ONLY_SOURCES } from "./index.ts";
 import type { ObtainMode } from "./obtain.ts";
 import { isContentKind, type ContentKind } from "./kind.ts";
 import { finishAiJob, recordAiBatch, startAiJob } from "./ai-telemetry.ts";
+import { aiExtraHeaders } from "./ai-headers.ts";
 
 import { CATEGORY_DESC, CATEGORY_KEYS } from "../../shared/taxonomy.ts";
 import { CLASSIFICATION_PROMPT } from "./evidence.ts";
@@ -303,20 +304,6 @@ function buildSystemPrompt(s: AiSettings): string {
 }
 
 type CallResult = { map: Map<number, AiVerdict>; ttfbMs: number };
-
-function aiExtraHeaders(): Record<string, string> {
-  try {
-    const raw = config.aiExtraHeaders?.trim();
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, value]) => typeof value === "string"),
-    ) as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
 
 async function callOnce(
   payload: { index: number; title: string; summary: string }[],
