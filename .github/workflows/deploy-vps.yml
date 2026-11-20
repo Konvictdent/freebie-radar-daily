@@ -73,16 +73,11 @@ jobs:
           BASIC_HASH=$(htpasswd -nbB admin "$VPS_WEB_PASSWORD" | cut -d: -f2)
           cat > /tmp/Caddyfile <<'EOF'
           107.173.19.29.sslip.io {
-            @api path /api/*
-            handle @api {
-              reverse_proxy radar:8788
+            @notApi not path /api/*
+            basic_auth @notApi {
+              admin __BASIC_HASH__
             }
-            handle {
-              basic_auth {
-                admin __BASIC_HASH__
-              }
-              reverse_proxy radar:8788
-            }
+            reverse_proxy radar:8788
             encode gzip
             header {
               Strict-Transport-Security "max-age=31536000; includeSubDomains"
