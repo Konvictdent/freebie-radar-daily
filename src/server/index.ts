@@ -11,7 +11,7 @@ import { config } from "./config.ts";
 import { getDb, migrate, run } from "./db.ts";
 import { registerApi, warmClusterCache } from "./routes.ts";
 import { startPushScheduler } from "./push.ts";
-import { digestExists, runDaily } from "./digest.ts";
+import { digestPushed, runDaily } from "./digest.ts";
 import { startIntervalScheduler, startScheduler } from "./cron.ts";
 import { getRetention, runCleanup } from "./retention.ts";
 import { ensureSources } from "./collectors/index.ts";
@@ -109,7 +109,7 @@ if (config.enableScheduler) {
     daily: async () => {
       const now = new Date();
       const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      if (digestExists(day)) return;
+      if (digestPushed(day)) return;
       await runDaily({ date: now });
       // 每日精选落库后，给开了「个人日报」的用户各发一份
       await pushUserDaily().catch((err) => {
