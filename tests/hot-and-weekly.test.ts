@@ -6,12 +6,13 @@ import { Hono } from "hono";
 process.env.DATABASE_PATH = ":memory:";
 process.env.SITE_MODE = "selfhost";
 process.env.ADMIN_TOKEN = "";
+process.env.PUBLIC_BASE_URL = "https://radar.example.test/";
 
 const { migrate, run, get, closeDb } = await import("../src/server/db.ts");
 const { ensureSources } = await import("../src/server/collectors/index.ts");
 const { registerApi } = await import("../src/server/routes.ts");
 const { buildHotReport, sourceQuality } = await import("../src/server/hot.ts");
-const { lastDigests, pickDaily, runWeekly, weekKey } = await import("../src/server/digest.ts");
+const { formatDigestBrief, lastDigests, pickDaily, runWeekly, weekKey } = await import("../src/server/digest.ts");
 
 const app = new Hono();
 
@@ -243,4 +244,27 @@ test("buildHotReport：最值得抢严格排除新闻/资讯/二手，对同事�
   const relRes = await app.request(`/api/items/${itemsJson.items[0]!.id}/related`);
   const relJson = (await relRes.json()) as { items: { id: number }[] };
   assert.equal(relJson.items.length, 2);
+});
+
+test("formatDigestBrief：只推送标题清单并附带网页版地址", () => {
+  const date = new Date("2026-11-21T08:30:00+08:00");
+  const items = Array.from({ length: 12 }, (_, i) => ({
+    id: i + 1,
+    source_id: "linuxdo-welfare",
+    title: "免费资源 " + (i + 1),
+    url: "https://example.com/" + (i + 1),
+    category: "cloud",
+    kind: "freebie",
+    score: 80,
+    expires_at: null,
+    published_at: null,
+  }));
+  const brief = formatDigestBrief(items, date);
+  assert.match(brief, /11月21日 精选 12 条/);
+  assert.match(brief, /1\. 免费资源 1/);
+  assert.match(brief, /10\. 免费资源 10/);
+  assert.doesNotMatch(brief, /11\. 免费资源 11/);
+  assert.match(brief, /还有 2 条/);
+  assert.match(brief, /https:\/\/radar\.example\.test\//);
+  assert.doesNotMatch(brief, /https:\/\/example\.com\/1/);
 });
