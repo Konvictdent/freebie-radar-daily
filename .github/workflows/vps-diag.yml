@@ -45,6 +45,8 @@ jobs:
           docker compose logs --since 24h radar | tail -300
           echo "=== digests ==="
           docker compose exec -T radar node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/radar.db');console.log(JSON.stringify(db.prepare('SELECT date,pushed_at,item_ids FROM digests ORDER BY date DESC LIMIT 5').all()));db.close()" </dev/null || true
+          echo "=== latest brief ==="
+          docker compose exec -T radar node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/radar.db');const r=db.prepare('SELECT date,pushed_at,payload FROM digests ORDER BY date DESC LIMIT 1').get();const p=r?JSON.parse(r.payload):{};console.log(JSON.stringify({date:r?.date,pushed_at:r?.pushed_at,count:p.count,brief:p.brief}));db.close()" </dev/null || true
           echo "=== horizon ==="
           systemctl show horizon-daily.service -p ActiveState -p SubState -p Result -p Environment || true
           systemd-analyze verify /etc/systemd/system/horizon-daily.service 2>&1 | tail -20 || true
