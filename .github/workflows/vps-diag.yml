@@ -46,8 +46,10 @@ jobs:
           echo "=== digests ==="
           docker compose exec -T radar node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/radar.db');console.log(JSON.stringify(db.prepare('SELECT date,pushed_at,item_ids FROM digests ORDER BY date DESC LIMIT 5').all()));db.close()" </dev/null || true
           echo "=== horizon ==="
-          systemctl show horizon-daily.service -p ActiveState -p SubState -p Result || true
-          journalctl -u horizon-daily.service -n 80 --no-pager || true
+          systemctl show horizon-daily.service -p ActiveState -p SubState -p Result -p Environment || true
+          systemd-analyze verify /etc/systemd/system/horizon-daily.service 2>&1 | tail -20 || true
+          systemctl list-timers horizon-daily.timer --no-pager || true
+          journalctl -u horizon-daily.service -n 40 --no-pager || true
           free -h
           echo "=== oom ==="
           dmesg 2>/dev/null | grep -i -E 'killed process|out of memory|oom' | tail -20 || true
