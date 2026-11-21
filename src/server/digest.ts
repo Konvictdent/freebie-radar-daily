@@ -143,19 +143,48 @@ export function formatDigest(items: DigestItem[], date = new Date()): string {
   return lines.join("\n");
 }
 
+/**
+ * 推送用简报：只放标题和分类，完整内容引导到网页版。
+ * 细项 URL 留在 `formatDigest` 的完整文本里，避免手机通知被长链接淹没。
+ */
+export function formatDigestBrief(items: DigestItem[], date = new Date(), limit = 10): string {
+  const label = date.getMonth() + 1 + "月" + date.getDate() + "日";
+  const baseUrl = config.publicBaseUrl;
+  if (!items.length) {
+    return "🛰 资源雷达 · " + label + "\n\n今天没有新的可领资源，明天见。" + (baseUrl ? "\n\n🌐 " + baseUrl : "");
+  }
+  const lines = ["🛰 资源雷达 · " + label + " 精选 " + items.length + " 条", ""];
+  items.slice(0, limit).forEach((it, i) => {
+    const cat = it.category ? (CATEGORY_LABEL[it.category as keyof typeof CATEGORY_LABEL] ?? it.category) : "其它";
+    const exp = daysLeft(it.expires_at);
+    const meta = [cat, exp].filter(Boolean).join(" · ");
+    lines.push(i + 1 + ". " + it.title.slice(0, 90));
+    if (meta) lines.push("   " + meta);
+  });
+  if (items.length > limit) lines.push("… 还有 " + (items.length - limit) + " 条");
+  if (baseUrl) {
+    lines.push("");
+    lines.push("🌐 网页版完整清单：" + baseUrl);
+  }
+  lines.push("");
+  lines.push("来源：资源雷达多源聚合");
+  return lines.join("\n");
+}
+
 
 export type DailyResult = { date: string; count: number; text: string; pushed: boolean; skippedReason?: string };
 
-export async function runDaily(options: { dryRun?: boolean; date?: Date; log?: (m: string) => void } = {}): Promise<DailyResult> {
+export async function runDaily(options: { dryRun?: boolean; date?: Date; brief?: boolean; log?: (m: string) => void } = {}): Promise<DailyResult> {
   const log = options.log ?? ((m: string) => console.log(m));
   const date = options.date ?? new Date();
   const key = dayKey(date);
   const items = pickDaily(date);
   const text = formatDigest(items, date);
+  const brief = formatDigestBrief(items, date);
 
   if (options.dryRun) {
     log("[daily] dry-run " + key + " items=" + items.length);
-    log(text);
+    log(options.brief ? brief : text);
     return { date: key, count: items.length, text, pushed: false, skippedReason: "dry-run" };
   }
 
@@ -164,7 +193,7 @@ export async function runDaily(options: { dryRun?: boolean; date?: Date; log?: (
       "INSERT INTO digests (date, item_ids, payload, created_at, pushed_at) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(date) DO UPDATE SET item_ids = excluded.item_ids, payload = excluded.payload",
       key,
       JSON.stringify(items.map((i) => i.id)),
-      JSON.stringify({ text, count: items.length }),
+      JSON.stringify({ text, brief, count: items.length }),
       new Date().toISOString(),
     );
     log("[daily] " + key + " 已生成 " + items.length + " 条（PUSH_CHANNEL=none，仅落库）");
@@ -174,7 +203,7 @@ export async function runDaily(options: { dryRun?: boolean; date?: Date; log?: (
   if (config.pushChannel === "pushplus") {
     const label = `${date.getMonth() + 1}月${date.getDate()}日`;
     const title = `资源雷达 · ${label} 精选 ${items.length} 条`;
-    await sendPushPlus(text, title);
+    await sendPushPlus(brief, title);
   } else if (config.pushChannel === "telegram") {
     if (!config.telegramBotToken || !config.telegramChatId) {
       throw new Error("PUSH_CHANNEL=telegram 但缺少 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID");
@@ -187,7 +216,7 @@ export async function runDaily(options: { dryRun?: boolean; date?: Date; log?: (
     "INSERT INTO digests (date, item_ids, payload, created_at, pushed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(date) DO UPDATE SET item_ids = excluded.item_ids, payload = excluded.payload, pushed_at = excluded.pushed_at",
     key,
     JSON.stringify(items.map((i) => i.id)),
-    JSON.stringify({ text, count: items.length }),
+    JSON.stringify({ text, brief, count: items.length }),
     new Date().toISOString(),
     new Date().toISOString(),
   );
@@ -211,8 +240,8 @@ export function lastDigests(limit = 10) {
   });
 }
 
-export function digestExists(day: string): boolean {
-  return Boolean(get("SELECT date FROM digests WHERE date = ?", day));
+export function digestPushed(day: string): boolean {
+  return Boolean(get("SELECT date FROM digests WHERE date = ? AND pushed_at IS NOT NULL", day));
 }
 
 /* ------------------------------------------------------------------ *
