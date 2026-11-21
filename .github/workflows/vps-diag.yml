@@ -27,14 +27,13 @@ jobs:
           ssh -i /tmp/vps_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$VPS_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /opt/freebie-radar
-          echo "=== host date ==="
+          echo "=== host ==="
           date
           date -u
           cat /etc/timezone 2>/dev/null || true
           timedatectl 2>/dev/null | head -6 || true
-          echo "=== container date/env ==="
-          docker compose exec -T radar date
-          docker compose exec -T radar printenv TZ DAILY_CRON COLLECT_CRON ENABLE_SCHEDULER PUSH_CHANNEL || true
+          echo "=== container ==="
+          docker compose exec -T radar sh -lc 'date; echo TZ=$TZ; echo DAILY_CRON=$DAILY_CRON; echo COLLECT_CRON=$COLLECT_CRON; echo ENABLE_SCHEDULER=$ENABLE_SCHEDULER; echo PUSH_CHANNEL=$PUSH_CHANNEL; node -e "console.log(new Date().toString(), new Date().getHours(), Intl.DateTimeFormat().resolvedOptions().timeZone)"' </dev/null
           echo "=== containers ==="
           docker compose ps
           docker inspect freebie-radar-radar-1 --format '{{json .State}}' || true
@@ -42,10 +41,10 @@ jobs:
           free -h
           df -h /
           uptime
-          echo "=== radar logs since 12h ==="
-          docker compose logs --since 12h radar | tail -200
+          echo "=== logs ==="
+          docker compose logs --since 24h radar | tail -300
           echo "=== digests ==="
-          docker compose exec -T radar node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/radar.db');console.log(JSON.stringify(db.prepare('SELECT date,pushed_at,item_ids FROM digests ORDER BY date DESC LIMIT 5').all()));db.close()" || true
+          docker compose exec -T radar node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/radar.db');console.log(JSON.stringify(db.prepare('SELECT date,pushed_at,item_ids FROM digests ORDER BY date DESC LIMIT 5').all()));db.close()" </dev/null || true
           echo "=== oom ==="
           dmesg 2>/dev/null | grep -i -E 'killed process|out of memory|oom' | tail -20 || true
           REMOTE
