@@ -49,6 +49,7 @@ jobs:
           ENABLE_SCHEDULER=true
           COLLECT_CRON=0 */2 * * *
           DAILY_CRON=30 8 * * *
+          SCAN_FLOOR_SEC=3600
           DAILY_TOP_N=12
           SITE_MODE=selfhost
           GUEST_HIDDEN_CATEGORIES=pan,course

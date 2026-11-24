@@ -51,6 +51,9 @@ export const config = {
   collectCron: str("COLLECT_CRON", "0 */2 * * *"),
   dailyCron: str("DAILY_CRON", "30 8 * * *"),
   enableScheduler: bool("ENABLE_SCHEDULER", true),
+  /** 全局最小扫描间隔（秒）：源的实际生效间隔 = max(interval_sec, 此值)，只抬不降。
+   *  默认 3600 = 每源至多每小时扫一次，压住 AI 审核调用频率；想恢复快扫调小即可。 */
+  scanFloorSec: num("SCAN_FLOOR_SEC", 3600),
 
   dailyTopN: num("DAILY_TOP_N", 12),
   publicBaseUrl: str("PUBLIC_BASE_URL"),

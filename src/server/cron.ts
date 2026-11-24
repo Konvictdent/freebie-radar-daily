@@ -35,11 +35,14 @@ export function matchField(field: string, value: number, min: number, max: numbe
 
 
 export function listDueSourceIds(): string[] {
+  // 实际生效间隔 = max(源 interval_sec, 全局下限 SCAN_FLOOR_SEC)：只抬不降，
+  // 避免送码类 90s 快源把 AI 审核调用刷得过于频繁。
   const due = all<{ id: string; kind: string; interval_sec: number; last_run_at: string | null }>(
     `SELECT id, kind, interval_sec, last_run_at FROM sources
       WHERE enabled = 1
-        AND (last_run_at IS NULL OR datetime(last_run_at, '+' || interval_sec || ' seconds') <= datetime('now'))
+        AND (last_run_at IS NULL OR datetime(last_run_at, '+' || MAX(interval_sec, ?) || ' seconds') <= datetime('now'))
       ORDER BY last_run_at IS NOT NULL, last_run_at ASC`,
+    config.scanFloorSec,
   );
   const filter = config.enabledSources;
   return due
@@ -53,7 +56,8 @@ export function listDueSourceIds(): string[] {
 
 /**
  * 按每个源自己的 interval_sec 轮询：到点就跑，串行执行避免打爆上游。
- * 送码类源设 60-120 秒，日报/清单/Cookie 托管源设半小时至数小时。
+ * 送码类源设 60-120 秒，日报/清单/Cookie 托管源设半小时至数小时；
+ * 实际生效间隔受 SCAN_FLOOR_SEC（默认 3600s）全局下限约束，只抬不降。
  */
 export function startIntervalScheduler(task: {
   log?: (m: string) => void;
@@ -85,7 +89,7 @@ export function startIntervalScheduler(task: {
   const timer = setInterval(() => void tick(), tickMs);
   timer.unref?.();
   intervalTimer = timer;
-  log(`[cron] interval scheduler started (tick=${tickMs}ms)`);
+  log(`[cron] interval scheduler started (tick=${tickMs}ms, floor=${config.scanFloorSec}s)`);
 }
 
 let intervalTimer: NodeJS.Timeout | null = null;
